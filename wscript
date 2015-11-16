@@ -69,6 +69,9 @@ def configure(conf):
         autowaf.check_pkg(conf, 'jack', uselib_store='JACK',
                           atleast_version='0.120.0', mandatory=True)
 
+    autowaf.check_pkg(conf, 'glib-2.0', uselib_store='GLIB',
+                      mandatory=False)
+
     if not Options.options.no_gtk:
         if not Options.options.no_gtk2:
             autowaf.check_pkg(conf, 'gtk+-2.0', uselib_store='GTK2',
@@ -177,6 +180,14 @@ def build(bld):
               lib          = ['pthread'],
               install_path = '${BINDIR}')
     autowaf.use_lib(bld, obj, libs)
+
+    obj = bld(features     = 'c cprogram',
+              source       = source + ' src/jalv_extui.c',
+              target       = 'jalv.extui',
+              includes     = ['.', 'src'],
+              lib          = ['pthread', 'm'],
+              install_path = '${BINDIR}')
+    autowaf.use_lib(bld, obj, libs + ' GLIB')
 
     # Gtk2 version
     if bld.env.HAVE_GTK2:
