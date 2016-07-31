@@ -46,6 +46,8 @@
 #include "lv2_evbuf.h"
 #include "symap.h"
 
+#include "lv2_external_ui.h"
+
 #ifdef __clang__
 #    define REALTIME __attribute__((annotate("realtime")))
 #else
@@ -244,6 +246,8 @@ typedef struct {
 	LilvNode* rsz_minimumSize;
 	LilvNode* work_interface;
 	LilvNode* work_schedule;
+	LilvNode* ui_externallv;
+	LilvNode* ui_externalkx;
 	LilvNode* end;  ///< NULL terminator for easy freeing of entire structure
 } JalvNodes;
 
@@ -319,6 +323,8 @@ struct Jalv {
 	bool               has_ui;         ///< True iff a control UI is present
 	bool               request_update; ///< True iff a plugin update is needed
 	bool               safe_restore;   ///< Plugin restore() is thread-safe
+	bool               externalui;     ///< True iff plugin has an external-ui
+	LV2_External_UI_Widget* extuiptr;  ///< data structure used for external-ui
 };
 
 int
