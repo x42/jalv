@@ -797,21 +797,88 @@ jalv_ui_instantiate(Jalv* jalv, const char* native_ui_type, void* parent)
 		NULL
 	};
 
+	jalv->extuiptr = NULL;
+
 	const char* bundle_uri  = lilv_node_as_uri(lilv_ui_get_bundle_uri(jalv->ui));
 	const char* binary_uri  = lilv_node_as_uri(lilv_ui_get_binary_uri(jalv->ui));
 	char*       bundle_path = lilv_file_uri_parse(bundle_uri, NULL);
 	char*       binary_path = lilv_file_uri_parse(binary_uri, NULL);
 
-	jalv->ui_instance = suil_instance_new(
-		jalv->ui_host,
-		jalv,
-		native_ui_type,
-		lilv_node_as_uri(lilv_plugin_get_uri(jalv->plugin)),
-		lilv_node_as_uri(lilv_ui_get_uri(jalv->ui)),
-		lilv_node_as_uri(jalv->ui_type),
-		bundle_path,
-		binary_path,
-		ui_features);
+	if (jalv->externalui) {
+		const LV2_Feature external_lv_feature = {
+			LV2_EXTERNAL_UI_DEPRECATED_URI, parent
+		};
+		const LV2_Feature external_kx_feature = {
+			LV2_EXTERNAL_UI__Host, parent
+		};
+		const LV2_Feature parent_feature = {
+			LV2_UI__parent, parent
+		};
+		const LV2_Feature instance_feature = {
+			NS_EXT "instance-access", lilv_instance_get_handle(jalv->instance)
+		};
+		const LV2_Feature data_feature = {
+			LV2_DATA_ACCESS_URI, &ext_data
+		};
+		const LV2_Feature* ui_features[] = {
+			&uri_map_feature, &map_feature, &unmap_feature,
+			&instance_feature,
+			&data_feature,
+			&log_feature,
+			&external_lv_feature,
+			&external_kx_feature,
+			&parent_feature,
+			&options_feature,
+			NULL
+		};
+
+		jalv->ui_instance = suil_instance_new(
+			jalv->ui_host,
+			jalv,
+			native_ui_type,
+			lilv_node_as_uri(lilv_plugin_get_uri(jalv->plugin)),
+			lilv_node_as_uri(lilv_ui_get_uri(jalv->ui)),
+			lilv_node_as_uri(jalv->ui_type),
+			bundle_path,
+			binary_path,
+			ui_features);
+		if (jalv->ui_instance) {
+			jalv->extuiptr = suil_instance_get_widget((SuilInstance*)jalv->ui_instance);
+		} else {
+			jalv->externalui = false;
+		}
+	} else {
+		const LV2_Feature parent_feature = {
+			LV2_UI__parent, parent
+		};
+		const LV2_Feature instance_feature = {
+			NS_EXT "instance-access", lilv_instance_get_handle(jalv->instance)
+		};
+		const LV2_Feature data_feature = {
+			LV2_DATA_ACCESS_URI, &ext_data
+		};
+		const LV2_Feature* ui_features[] = {
+			&uri_map_feature, &map_feature, &unmap_feature,
+			&instance_feature,
+			&data_feature,
+			&log_feature,
+			&parent_feature,
+			&options_feature,
+			NULL
+		};
+
+		jalv->ui_instance = suil_instance_new(
+			jalv->ui_host,
+			jalv,
+			native_ui_type,
+			lilv_node_as_uri(lilv_plugin_get_uri(jalv->plugin)),
+			lilv_node_as_uri(lilv_ui_get_uri(jalv->ui)),
+			lilv_node_as_uri(jalv->ui_type),
+			bundle_path,
+			binary_path,
+			ui_features);
+
+	}
 
 	lilv_free(binary_path);
 	lilv_free(bundle_path);
@@ -827,6 +894,7 @@ jalv_ui_instantiate(Jalv* jalv, const char* native_ui_type, void* parent)
 		}
 	}
 }
+
 
 bool
 jalv_ui_is_resizable(Jalv* jalv)
@@ -949,6 +1017,9 @@ jalv_update(Jalv* jalv)
 		if (ev.protocol == 0 && jalv->opts.print_controls) {
 			print_control_value(jalv, &jalv->ports[ev.index], *(float*)buf);
 		}
+	}
+	if (jalv->externalui && jalv->extuiptr) {
+		LV2_EXTERNAL_UI_RUN(jalv->extuiptr);
 	}
 
 	return true;
@@ -1134,6 +1205,8 @@ main(int argc, char** argv)
 	jalv.nodes.rsz_minimumSize        = lilv_new_uri(world, LV2_RESIZE_PORT__minimumSize);
 	jalv.nodes.work_interface         = lilv_new_uri(world, LV2_WORKER__interface);
 	jalv.nodes.work_schedule          = lilv_new_uri(world, LV2_WORKER__schedule);
+	jalv.nodes.ui_externallv          = lilv_new_uri(world, "http://lv2plug.in/ns/extensions/ui#external");
+	jalv.nodes.ui_externalkx          = lilv_new_uri(world, "http://kxstudio.sf.net/ns/lv2ext/external-ui#Widget");
 	jalv.nodes.end                    = NULL;
 
 	/* Get plugin URI from loaded state or command line */
@@ -1234,11 +1307,31 @@ main(int argc, char** argv)
 	} else if (!jalv.opts.generic_ui && jalv.opts.show_ui) {
 		jalv.ui = lilv_uis_get(jalv.uis, lilv_uis_begin(jalv.uis));
 	}
+	if (!jalv.ui) {
+		LILV_FOREACH(uis, u, jalv.uis) {
+			const LilvUI* ui = lilv_uis_get(jalv.uis, u);
+			const LilvNodes* types = lilv_ui_get_classes(ui);
+			LILV_FOREACH(nodes, t, types) {
+				const char * pt = lilv_node_as_uri(lilv_nodes_get(types, t));
+				if (!strcmp(pt, "http://kxstudio.sf.net/ns/lv2ext/external-ui#Widget")) {
+					jalv.externalui = true;
+					jalv.ui = ui;
+					jalv.ui_type = jalv.nodes.ui_externalkx;
+				} else if (!strcmp(pt, "http://lv2plug.in/ns/extensions/ui#external")) {
+					jalv.externalui = true;
+					jalv.ui_type = jalv.nodes.ui_externallv;
+					jalv.ui = ui;
+				}
+			}
+		}
+	}
 
 	/* Create ringbuffers for UI if necessary */
 	if (jalv.ui) {
 		fprintf(stderr, "UI:           %s\n",
 		        lilv_node_as_uri(lilv_ui_get_uri(jalv.ui)));
+		fprintf(stderr, "UI Type:      %s\n",
+				lilv_node_as_uri(jalv.ui_type));
 	} else {
 		fprintf(stderr, "UI:           None\n");
 	}
