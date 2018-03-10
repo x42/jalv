@@ -117,7 +117,7 @@ jalv_open_ui(Jalv* jalv)
 #ifdef _WIN32
 		Sleep(1000 / jalv->ui_update_hz);
 #else
-		usleep(1000000 / jalv->ui_update_hz);
+		usleep((unsigned int)(1000000 / jalv->ui_update_hz));
 #endif
 		jalv_update(jalv);
 		if (idle_iface) {
